@@ -1,0 +1,8 @@
+{
+  "slug": "myapp",
+  "name": "My App",
+  "android_package": "com.example.myapp",
+  "ios_bundle": "com.example.myapp",
+  "template": "expo-template-blank-typescript",
+  "notes": "Example template used by create_expo_project.sh"
+}
