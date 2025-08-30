@@ -3,7 +3,7 @@ set -euo pipefail
 # Usage:
 # ./build_ios_via_ssh.sh user@mac-host /path/to/project [branch-or-commit]
 
-REMOTE="$1"
+REMOTE="${1:-praveenojha@192.168.2.18}"
 PROJECT_PATH="$2"
 REF="${3:-HEAD}"
 
@@ -53,6 +53,26 @@ else
 fi
 
 export LANG=en_US.UTF-8
+
+# Try to source common shell profile files so tools installed via Homebrew (node, cocoapods) are on PATH
+if [ -f "$HOME/.bash_profile" ]; then
+	# shellcheck disable=SC1090
+	source "$HOME/.bash_profile" || true
+fi
+if [ -f "$HOME/.bashrc" ]; then
+	# shellcheck disable=SC1090
+	source "$HOME/.bashrc" || true
+fi
+if [ -f "$HOME/.profile" ]; then
+	# shellcheck disable=SC1090
+	source "$HOME/.profile" || true
+fi
+if [ -d "/opt/homebrew/bin" ]; then
+	PATH="/opt/homebrew/bin:$PATH"
+fi
+if [ -d "/usr/local/bin" ]; then
+	PATH="/usr/local/bin:$PATH"
+fi
 
 if ! command -v npm >/dev/null 2>&1; then
 	echo "npm not found on remote. Attempting to install Node/npm and CocoaPods..."
@@ -137,5 +157,7 @@ echo "BUILD_ZIP=${PROJECT_PATH}/artifacts/${SCHEME}-simulator.zip"
 SSH
 
 echo "Fetching artifact from remote..."
-rsync -avz --progress "$REMOTE:${PROJECT_PATH}/artifacts/thermalcamera-simulator.zip" "$LOCAL_DEST/" || scp "$REMOTE:${PROJECT_PATH}/artifacts/thermalcamera-simulator.zip" "$LOCAL_DEST/"
-echo "Fetched artifact to $LOCAL_DEST"
+BASENAME=$(basename "$PROJECT_PATH")
+ART_NAME="${BASENAME}-simulator.zip"
+rsync -avz --progress "$REMOTE:${PROJECT_PATH}/artifacts/${ART_NAME}" "$LOCAL_DEST/" || scp "$REMOTE:${PROJECT_PATH}/artifacts/${ART_NAME}" "$LOCAL_DEST/" || true
+echo "Fetched artifact (if available) to $LOCAL_DEST"
