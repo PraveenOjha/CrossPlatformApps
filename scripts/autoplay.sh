@@ -25,7 +25,7 @@ Options:
 
 Examples:
   $0 --slug myapp --name "My App" --android-pkg com.example.myapp --ios-bundle com.example.myapp --yes
-  $0 --slug myapp --remote iMac --remote-path /Users/praveenojha/Desktop/myapp
+  $0 --slug myapp --remote iMac --remote-path /Volumes/data/work/myapp
 USAGE
 }
 
@@ -138,6 +138,17 @@ else
   echo "Warning: canonical scripts/remote_ios_build.sh not found; no per-app helper created"
 fi
 
+# Copy canonical android build helper into app so per-app builds are possible
+if [ -f "$SCRIPT_DIR/android_build.sh" ]; then
+  if [ ! -f android_build.sh ]; then
+    cp "$SCRIPT_DIR/android_build.sh" ./android_build.sh || true
+    chmod +x android_build.sh || true
+    echo "Copied canonical per-app Android build helper into: $(pwd)/android_build.sh"
+  fi
+else
+  echo "Warning: canonical scripts/android_build.sh not found; no per-app android helper created"
+fi
+
 # Build Android local if requested
 if [ "$DO_ANDROID" = true ]; then
   if [ -d android ]; then
@@ -176,9 +187,10 @@ if [ "$DO_ANDROID" = true ]; then
     fi
     ./gradlew assembleDebug -x lint
     popd >/dev/null
-  mkdir -p ../../artifacts/$SLUG
-  cp android/app/build/outputs/apk/debug/app-debug.apk ../../artifacts/$SLUG/ || true
-  echo "Android APK copied to artifacts/$SLUG/ (if build succeeded)"
+  # Place Android APK into the per-app artifacts folder so both platforms' artifacts live together
+  mkdir -p ./artifacts
+  cp android/app/build/outputs/apk/debug/app-debug.apk ./artifacts/ || true
+  echo "Android APK copied to $(pwd)/artifacts/ (if build succeeded)"
   else
     echo "No android/ directory found, skipping Android build"
   fi
@@ -196,34 +208,18 @@ if [ "$DO_IOS" = true ]; then
 
   echo "Triggering remote iOS build on $REMOTE for project at $REMOTE_PATH (non-interactive)"
 
-  # Ensure remote parent path exists and rsync the app there (from inside apps/$SLUG)
-  echo "Syncing local app -> ${REMOTE}:${REMOTE_PATH} (this may ask for password or use your SSH key)..."
-  ssh "$REMOTE" "mkdir -p '$REMOTE_PATH'"
-  rsync -avz --delete \
-    --exclude 'node_modules' \
-    --exclude '.git' \
-    --exclude 'android/.gradle' \
-    --exclude 'android/app/build' \
-    --exclude 'ios/Pods' \
-    --exclude 'artifacts' \
-    ./ "$REMOTE:$REMOTE_PATH/"
-  echo "Sync complete."
-
-  # Run the per-app remote build helper (remote_ios_build.sh) on the mac and fetch artifacts back
-  echo "Triggering remote build script on $REMOTE (cd $REMOTE_PATH && ./remote_ios_build.sh)"
-  # Run the remote helper in a login-like shell so user PATH (node, npm, pod) is available
-  # Forward skip-pod flag if requested
-  REMOTE_POD_FLAG=""
+  # Delegate SSH/rsync orchestration to per-app remote_ios_build.sh by invoking it locally
+  # The per-app script will rsync and invoke the helper on the remote host when given --remote-host/--remote-path.
+  REMOTE_ARGS="--remote-host \"$REMOTE\" --remote-path \"$REMOTE_PATH\""
   if [ "$SKIP_POD" = true ]; then
-    REMOTE_POD_FLAG="--skip-pod"
+    REMOTE_ARGS="$REMOTE_ARGS --skip-pod"
   fi
-  if ssh "$REMOTE" "bash -lc 'cd \"$REMOTE_PATH\" && ./remote_ios_build.sh ${REMOTE_POD_FLAG}'"; then
-    echo "Remote build+package completed; fetching artifacts..."
-    mkdir -p ../../artifacts/$SLUG/ios
-    rsync -avz "$REMOTE:$REMOTE_PATH/artifacts/ios/" "../../artifacts/$SLUG/ios/" || true
-    echo "Artifacts copied to artifacts/$SLUG/ios"
+
+  # Call the per-app helper (it will handle rsync->ssh->build->fetch)
+  if ./remote_ios_build.sh $REMOTE_ARGS; then
+    echo "Remote build orchestration completed; artifacts (if any) are under artifacts/$SLUG/ios"
   else
-    echo "Remote build failed. Check remote logs on $REMOTE:$REMOTE_PATH" >&2
+    echo "Remote orchestration failed. Check logs and remote machine access." >&2
   fi
 fi
 
